@@ -12,7 +12,6 @@
 #include "syscall.h"
 #include "libmem.h"
 #include "queue.h"
-#include "cpu.h"
 #include <stdlib.h>
 
 #ifdef MM64
@@ -31,7 +30,7 @@ int __sys_memmap(struct krnl_t *krnl, uint32_t pid, struct sc_regs *regs)
     /* TODO THIS DUMMY CREATE EMPTY PROC TO AVOID COMPILER NOTIFY
      *      need to be eliminated
      */
-    struct pcb_t *caller = get_proc_by_pid(pid);;
+    struct pcb_t *caller = NULL;
 
     /*
      * @bksysnet: Please note in the dual spacing design
@@ -46,6 +45,15 @@ int __sys_memmap(struct krnl_t *krnl, uint32_t pid, struct sc_regs *regs)
     /* TODO Maching and marking the process */
     /* user process are not allowed to access directly pcb in kernel space of syscall */
     //....
+    struct queue_t *running_list = krnl->running_list;
+    if (running_list != NULL) {
+        for (int i = 0; i < running_list->size; i++) {
+            if (running_list->proc[i]->pid == pid) {
+                caller = running_list->proc[i]; // Matching the process
+                break;
+            }
+        }
+    }
 
     switch (memop)
     {
@@ -64,7 +72,7 @@ int __sys_memmap(struct krnl_t *krnl, uint32_t pid, struct sc_regs *regs)
         regs->a3 = value;
         break;
     case SYSMEM_IO_WRITE:
-        MEMPHY_write(caller->krnl->mram, regs->a2, regs->a3);
+        MEMPHY_write(caller->krnl->mram, regs->a2, (BYTE)regs->a3);
         break;
     default:
         printf("Memop code: %d\n", memop);
