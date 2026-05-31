@@ -40,7 +40,7 @@ syscalltbl.lst: $(SRC)/syscall.tbl
 	@echo $(OS_OBJ)
 	chmod +x $(SRC)/syscalltbl.sh
 	$(SRC)/syscalltbl.sh $< $(SRC)/$@ 
-	mv $(OBJ)/syscalltbl.lst $(INCLUDE)/
+#	mv $(OBJ)/syscalltbl.lst $(INCLUDE)/
 
 # Compile the whole OS simulation
 os: $(OBJ) syscalltbl.lst $(OS_OBJ)

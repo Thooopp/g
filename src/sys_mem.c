@@ -12,6 +12,7 @@
 #include "syscall.h"
 #include "libmem.h"
 #include "queue.h"
+#include "cpu.h"
 #include <stdlib.h>
 
 #ifdef MM64
@@ -30,8 +31,7 @@ int __sys_memmap(struct krnl_t *krnl, uint32_t pid, struct sc_regs *regs)
     /* TODO THIS DUMMY CREATE EMPTY PROC TO AVOID COMPILER NOTIFY
      *      need to be eliminated
      */
-    struct pcb_t *caller = malloc(sizeof(struct pcb_t));
-    caller->krnl = malloc(sizeof(struct krnl_t));
+    struct pcb_t *caller = get_proc_by_pid(pid);;
 
     /*
      * @bksysnet: Please note in the dual spacing design
