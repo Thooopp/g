@@ -54,6 +54,8 @@ int __sys_memmap(struct krnl_t *krnl, uint32_t pid, struct sc_regs *regs)
             }
         }
     }
+    if (caller == NULL) return -1;
+    if (caller->krnl == NULL) return -1;
 
     switch (memop)
     {
