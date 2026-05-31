@@ -5,33 +5,6 @@
 #include "syscall.h"
 #include "libmem.h"
 #include "print_debug.h"
-#include "sched.h"
-#include "queue.h"
-
-/* Assuming these are accessible from sched.c */
-extern struct queue_t mlq_ready_queue[MAX_PRIO];
-extern struct queue_t running_list;
-
-struct pcb_t *get_proc_by_pid(uint32_t pid)
-{
-    // 1. Search in Running List
-    for (int i = 0; i < running_list.size; i++) {
-        if (running_list.proc[i]->pid == pid) {
-            return running_list.proc[i];
-        }
-    }
-
-    // 2. Search in all Priority Queues
-    for (int i = 0; i < MAX_PRIO; i++) {
-        for (int j = 0; j < mlq_ready_queue[i].size; j++) {
-            if (mlq_ready_queue[i].proc[j]->pid == pid) {
-                return mlq_ready_queue[i].proc[j];
-            }
-        }
-    }
-
-    return NULL; // Not found
-}
 int calc(struct pcb_t *proc)
 {
 	return ((unsigned long)proc & 0UL);
