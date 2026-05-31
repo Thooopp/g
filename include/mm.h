@@ -126,7 +126,7 @@ int get_pd_from_pagenum(addr_t pgn, addr_t *pgd, addr_t *p4d, addr_t *pud, addr_
 int pte_set_fpn(struct pcb_t *caller, addr_t pgn, addr_t fpn);
 int pte_set_swap(struct pcb_t *caller, addr_t pgn, int swptyp, addr_t swpoff);
 uint32_t pte_get_entry(struct pcb_t *caller, addr_t pgn);
-int pte_set_entry(struct pcb_t *caller, addr_t pgn, uint32_t pte_val);
+int pte_set_entry(struct pcb_t *caller, addr_t pgn, addr_t pte_val);
 int init_pte(addr_t *pte,
              int pre,        // present
              addr_t fpn,     // FPN

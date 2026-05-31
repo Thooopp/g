@@ -212,7 +212,13 @@ uint32_t pte_get_entry(struct pcb_t *caller, addr_t pgn)
 int pte_set_entry(struct pcb_t *caller, addr_t pgn, addr_t pte_val)
 {
 	struct krnl_t *krnl = caller->krnl;
-	krnl->mm->pgd[pgn]=pte_val;
+#ifdef MM64
+  /* 64-bit: Cập nhật trực tiếp vào lớp Page Table (pt) cuối cùng */
+  krnl->mm->pt[pgn] = pte_val;
+#else
+  /* 32-bit: Cập nhật vào Page Directory (pgd) */
+  krnl->mm->pgd[pgn] = pte_val;
+#endif
 	
 	return 0;
 }
@@ -273,7 +279,7 @@ addr_t vmap_page_range(struct pcb_t *caller,           // process call
 
     /* Tính số thứ tự page (Page Number) từ địa chỉ bắt đầu cộng thêm offset vòng lặp */
 #ifdef MM64
-    pgn = PAGING64_PGN(addr) + pgit;
+    pgn = (addr / PAGING64_PAGESZ) + pgit; 
 #else
     pgn = PAGING_PGN(addr) + pgit;
 #endif
@@ -444,6 +450,105 @@ addr_t vm_map_range(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t map
 
   return 0;
 }
+int is_frame_free(struct memphy_struct *mp, addr_t fpn) {
+    struct framephy_struct *curr = mp->free_fp_list;
+    while (curr != NULL) {
+        if (curr->fpn == fpn) return 1;
+        curr = curr->fp_next;
+    }
+    return 0;
+}
+
+/* Helper: Rút một FPN cụ thể ra khỏi danh sách trống */
+int extract_free_frame(struct memphy_struct *mp, addr_t fpn) {
+    struct framephy_struct *curr = mp->free_fp_list;
+    struct framephy_struct *prev = NULL;
+    while (curr != NULL) {
+        if (curr->fpn == fpn) {
+            if (prev == NULL) {
+                mp->free_fp_list = curr->fp_next;
+            } else {
+                prev->fp_next = curr->fp_next;
+            }
+            free(curr); /* Xoá node cũ */
+            return 0;
+        }
+        prev = curr;
+        curr = curr->fp_next;
+    }
+    return -1;
+}
+
+/* HÀM CHÍNH: Cấp phát N khung RAM liên tiếp */
+addr_t alloc_contiguous_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_struct **frm_lst)
+{
+    struct memphy_struct *mram = caller->krnl->mram;
+    
+    /* Tính số lượng khung RAM tối đa của hệ thống để làm giới hạn quét */
+#ifdef MM64
+    int max_fpn = mram->maxsz / PAGING64_PAGESZ;
+#else
+    int max_fpn = mram->maxsz / PAGING_PAGESZ;
+#endif
+
+    int start_fpn = -1;
+
+    /* 1. Thuật toán quét tìm vùng liên tục (First-Fit Contiguous) */
+    for (int i = 0; i <= max_fpn - req_pgnum; i++) {
+        int is_contiguous_free = 1;
+        
+        /* Kiểm tra xem N frames tính từ i có trống hết không */
+        for (int j = 0; j < req_pgnum; j++) {
+            if (!is_frame_free(mram, i + j)) {
+                is_contiguous_free = 0;
+                break;
+            }
+        }
+        
+        /* Nếu tìm thấy đủ N frames liên tiếp, chốt vị trí bắt đầu */
+        if (is_contiguous_free) {
+            start_fpn = i;
+            break;
+        }
+    }
+
+    if (start_fpn == -1) {
+        return -1; /* Lỗi: Không tìm được dải RAM vật lý nào liên tục đủ lớn (Bị phân mảnh ngoại) */
+    }
+
+    /* 2. Trích xuất các frames đó và đưa vào danh sách trả về */
+    struct framephy_struct *head = NULL;
+    struct framephy_struct *tail = NULL;
+
+    for (int j = 0; j < req_pgnum; j++) {
+        addr_t target_fpn = start_fpn + j;
+        
+        /* Rút frame này ra khỏi kho trống */
+        extract_free_frame(mram, target_fpn);
+
+        /* Tạo node để gắn vào danh sách trả về */
+        struct framephy_struct *newfp = malloc(sizeof(struct framephy_struct));
+        newfp->fpn = target_fpn;
+        newfp->fp_next = NULL;
+
+        if (head == NULL) {
+            head = newfp;
+            tail = newfp;
+        } else {
+            tail->fp_next = newfp;
+            tail = newfp;
+        }
+
+        /* Đồng thời cập nhật used_fp_list (Đánh dấu đã sử dụng) */
+        struct framephy_struct *used_node = malloc(sizeof(struct framephy_struct));
+        used_node->fpn = target_fpn;
+        used_node->fp_next = mram->used_fp_list;
+        mram->used_fp_list = used_node;
+    }
+
+    *frm_lst = head;
+    return 0;
+}
 
 /*
  * vm_map_ram - do the mapping all vm are to ram storage device
@@ -454,10 +559,9 @@ addr_t vm_map_range(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t map
 addr_t vm_map_kernel(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t mapstart, int incpgnum, struct vm_rg_struct *ret_rg)
 {
   struct framephy_struct *frm_lst = NULL;
-  struct krnl_t *krnl = caller->krnl;
+  // struct krnl_t *krnl = caller->krnl; /* Xóa dòng này vì không còn gọi krnl trực tiếp */
 
-  /* 1. Kiểm tra giới hạn không gian bộ nhớ (Boundary Check) */
-  /* Tính toán xem nếu map 'incpgnum' trang thì tốn bao nhiêu bytes */
+  /* 1. Tính toán dung lượng bộ nhớ cần thiết để map */
   addr_t required_space;
 #ifdef MM64
   required_space = incpgnum * PAGING64_PAGESZ;
@@ -465,48 +569,38 @@ addr_t vm_map_kernel(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t ma
   required_space = incpgnum * PAGING_PAGESZ;
 #endif
 
-  /* Nếu địa chỉ muốn map nằm ngoài vùng an toàn astart -> aend, từ chối ngay lập tức */
+  /* 2. Kiểm tra Boundary */
   if (mapstart < astart || (mapstart + required_space) > aend) {
-      return -1; /* Lỗi: Vượt quá giới hạn không gian Kernel cho phép */
+      return -1; 
   }
 
-  /* 2. Cấp phát frame vật lý LIÊN TỤC (Sử dụng hàm tự viết ở bước trước) */
+  /* 3. Xin RAM vật lý liên tục */
   if (alloc_contiguous_pages_range(caller, incpgnum, &frm_lst) != 0) {
-      return -1; /* Lỗi: Không tìm được vùng RAM liên tục (Phân mảnh ngoại) */
+      return -1; 
   }
 
   struct framephy_struct *fpit = frm_lst;
-  
-  /* Sử dụng trực tiếp tham số mapstart làm địa chỉ ảo khởi điểm */
   addr_t current_kva = mapstart; 
   ret_rg->rg_start = mapstart;
 
-  /* 3. Map từng frame vào Page Table của Kernel */
+  /* 4. Map từng page ảo vào frame vật lý */
   for (int i = 0; i < incpgnum; i++)
   {
-    if (fpit == NULL) break; /* An toàn: Tránh lỗi đứt gãy danh sách */
+    if (fpit == NULL) break; 
 
     addr_t fpn = fpit->fpn;
     addr_t pgn;
 
-    /* Trích xuất con trỏ Bảng trang dựa theo kiến trúc HĐH */
 #ifdef MM64
     pgn = current_kva / PAGING64_PAGESZ;
-    uint64_t *pte = &krnl->krnl_pt[pgn]; /* 64-bit dùng mảng uint64_t */
 #else
     pgn = PAGING_PGN(current_kva);
-    uint32_t *pte = &krnl->krnl_pgd[pgn]; /* 32-bit dùng mảng uint32_t */
 #endif
 
-    /* Xóa sạch PTE cũ và thiết lập PTE mới */
-    *pte = 0;
-    SETBIT(*pte, PAGING_PTE_PRESENT_MASK);
-    CLRBIT(*pte, PAGING_PTE_SWAPPED_MASK);
-    
-    /* Ghi đè số khung RAM (FPN) vào cấu trúc PTE */
-    SETVAL(*pte, fpn, PAGING_PTE_FPN_MASK, PAGING_PTE_FPN_LOBIT);
+    /* FIX: Sử dụng hàm pte_set_fpn để HĐH tự động rẽ nhánh 32/64-bit
+     * an toàn tuyệt đối và tránh Crash do truy cập mảng rỗng */
+    pte_set_fpn(caller, pgn, fpn);
 
-    /* Chuyển sang frame vật lý và địa chỉ ảo KVA kế tiếp */
     fpit = fpit->fp_next;
 #ifdef MM64
     current_kva += PAGING64_PAGESZ;
@@ -515,7 +609,6 @@ addr_t vm_map_kernel(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t ma
 #endif
   }
 
-  /* Cập nhật điểm kết thúc vào struct trả về */
   ret_rg->rg_end = current_kva;
 
   return mapstart;
