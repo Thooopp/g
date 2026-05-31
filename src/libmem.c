@@ -382,8 +382,8 @@ int pg_getval(struct mm_struct *mm, int addr, BYTE *data, struct pcb_t *caller)
 
   /* TODO: Tính pgn và off trong PAGING64 */
 #ifdef MM64
-  pgn = PAGING64_PGN(addr);
-  off = PAGING64_OFFST(addr);
+  pgn = (addr) >> 12;
+  off = (addr) & ((1ULL << 12) - 1);
 #else
   pgn = PAGING_PGN(addr);
   off = PAGING_OFFST(addr);
@@ -426,8 +426,8 @@ int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller)
   /* TODO: Tính pgn và off trong PAGING64 */
 #ifdef MM64
   /* Với 64-bit, tính toán thông qua Kích thước trang PAGING64_PAGESZ */
-  pgn = PAGING64_PGN(addr);
-  off = PAGING64_OFFST(addr);
+  pgn = (addr) >> 12;
+  off = (addr) & ((1ULL << 12) - 1);
 #else
   /* Với 32-bit, có thể dùng macro mặc định của hệ thống */
   pgn = PAGING_PGN(addr);
