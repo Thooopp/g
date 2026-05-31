@@ -28,9 +28,12 @@ int queue_empty(void)
 {
 #ifdef MLQ_SCHED
 	unsigned long prio;
-	for (prio = 0; prio < MAX_PRIO; prio++)
-		if (!empty(&mlq_ready_queue[prio]))
-			return -1;
+	for (prio = 0; prio < MAX_PRIO; prio++) {
+		if (!empty(&mlq_ready_queue[prio])) {
+			return 0;
+        }
+    }
+    return 1;
 #endif
 	return (empty(&ready_queue) && empty(&run_queue));
 }
@@ -62,47 +65,35 @@ void init_scheduler(void)
 struct pcb_t *get_mlq_proc(void)
 {
     struct pcb_t *proc = NULL;
+    pthread_mutex_lock(&queue_lock);
 
-    /*TODO: get a process from PRIORITY [ready_queue].
-     *      It worth to protect by a mechanism.
-     * */
-    int i;
     int found = 0;
-    for (i = 0; i < MAX_PRIO; i++) {
-        pthread_mutex_lock(&queue_lock);
+    /* 1. Quét tìm tiến trình ở các hàng đợi CÒN SLOT */
+    for (int i = 0; i < MAX_PRIO; i++) {
         if (!empty(&mlq_ready_queue[i]) && slot[i] > 0) {
             proc = dequeue(&mlq_ready_queue[i]);
             slot[i]--;
             found = 1;
-            pthread_mutex_unlock(&queue_lock);
             break;
         }
-        pthread_mutex_unlock(&queue_lock);
     }
 
+    /* 2. Nếu hàng đợi có tiến trình nhưng TẤT CẢ đều hết slot -> Reset Slots */
     if (!found) {
-        pthread_mutex_lock(&queue_lock);
-        for (i = 0; i < MAX_PRIO; i++) {
+        for (int i = 0; i < MAX_PRIO; i++) {
             slot[i] = MAX_PRIO - i;
         }
-        pthread_mutex_unlock(&queue_lock);
-        for (i = 0; i < MAX_PRIO; i++) {
-            pthread_mutex_lock(&queue_lock);
+        /* Tiến hành quét lại lần 2 sau khi đã bơm đầy slot */
+        for (int i = 0; i < MAX_PRIO; i++) {
             if (!empty(&mlq_ready_queue[i]) && slot[i] > 0) {
                 proc = dequeue(&mlq_ready_queue[i]);
                 slot[i]--;
-                pthread_mutex_unlock(&queue_lock);
                 break;
             }
-            pthread_mutex_unlock(&queue_lock);
         }
-    }    
-
-    if (proc != NULL) {
-        pthread_mutex_lock(&queue_lock);
-        enqueue(&running_list, proc);
-        pthread_mutex_unlock(&queue_lock);
     }
+
+    pthread_mutex_unlock(&queue_lock);
     return proc;
 }
 
@@ -162,6 +153,9 @@ struct pcb_t *get_proc(void)
 	 *       It worth to protect by a mechanism.
 	 *
 	 */
+    if (!empty(&ready_queue)) {
+        proc = dequeue(&ready_queue);
+    }
 
 	pthread_mutex_unlock(&queue_lock);
 
