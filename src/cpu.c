@@ -5,6 +5,24 @@
 #include "syscall.h"
 #include "libmem.h"
 #include "print_debug.h"
+#include "sched.h"
+#include "queue.h"
+
+extern struct queue_t mlq_ready_queue[MAX_PRIO];
+extern struct queue_t running_list;
+
+struct pcb_t *get_proc_by_pid(uint32_t pid)
+{
+    for (int i = 0; i < running_list.size; i++) {
+        if (running_list.proc[i]->pid == pid) return running_list.proc[i];
+    }
+    for (int i = 0; i < MAX_PRIO; i++) {
+        for (int j = 0; j < mlq_ready_queue[i].size; j++) {
+            if (mlq_ready_queue[i].proc[j]->pid == pid) return mlq_ready_queue[i].proc[j];
+        }
+    }
+    return NULL;
+}
 int calc(struct pcb_t *proc)
 {
 	return ((unsigned long)proc & 0UL);
@@ -126,7 +144,8 @@ int run(struct pcb_t *proc)
 	default:
 		stat = 1;
 	}
-#ifdef DEBUG_PRINT
+/*
+ #ifdef DEBUG_PRINT
 	printf("\n======================================== KERNEL INFO ========================================\n");
 	const char *opcode_str[] = {
 		"CALC",
@@ -148,6 +167,6 @@ int run(struct pcb_t *proc)
 		   (unsigned long)ins.arg_3);
 	print_kernel_info(proc->krnl);
 #endif
-
+*/
 	return stat;
 }
