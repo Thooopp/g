@@ -209,7 +209,7 @@ uint32_t pte_get_entry(struct pcb_t *caller, addr_t pgn)
  * @pgn    : page number
  * @ret    : page table entry
  **/
-int pte_set_entry(struct pcb_t *caller, addr_t pgn, addr_t pte_val)
+int pte_set_entry(struct pcb_t *caller, addr_t pgn, uint32_t pte_val)
 {
 	struct krnl_t *krnl = caller->krnl;
 #ifdef MM64
